@@ -33,7 +33,7 @@ async function call(fetchImpl, token, method, url, body) {
 
 /** Update the comment carrying `marker`, or create it. */
 export async function upsertComment({ token, repository, prNumber, body, marker, apiUrl = 'https://api.github.com', fetchImpl = fetch }) {
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? '')) throw new GitHubApiError(0, `not a repository name: ${repository}`);
+  if (!/^[\w-]+\/(?!\.+$)[\w.-]+$/.test(repository ?? '')) throw new GitHubApiError(0, `not a repository name: ${repository}`);
   const base = `${apiUrl}/repos/${repository}`;
   for (let page = 1; page <= 30; page += 1) {
     const comments = await call(fetchImpl, token, 'GET', `${base}/issues/${prNumber}/comments?per_page=100&page=${page}`);

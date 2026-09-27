@@ -64,3 +64,12 @@ test('a marked comment written by a person is never overwritten', async () => {
   assert.equal(await upsert(gh), 'created');
   assert.equal(gh.comments[0].body, `${MARKER}\n✅ Passed`);
 });
+
+test('a repository name with dot segments is refused', async () => {
+  const fetchImpl = async () => { throw new Error('no request expected'); };
+  for (const repository of ['../evil', 'acme/..', 'acme/.']) {
+    await assert.rejects(
+      upsertComment({ token: 't', repository, prNumber: 7, body: 'b', marker: MARKER, fetchImpl }),
+      GitHubApiError, repository);
+  }
+});
