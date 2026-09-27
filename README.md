@@ -36,6 +36,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Install what your gates need first, e.g. actions/setup-node + npm ci,
+      # or actions/setup-python + pip install -r requirements.txt.
 
       - name: Prove resilience invariants
         uses: faultkit/action@<full-commit-sha> # v1.0.0
@@ -63,6 +68,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Install what your gates need first, e.g. actions/setup-node + npm ci,
+      # or actions/setup-python + pip install -r requirements.txt.
 
       - name: Prove resilience invariants
         uses: faultkit/action@<full-commit-sha> # v1.0.0
@@ -120,7 +130,8 @@ points). It lists every invariant the skill has discovered, whether or not a
 deterministic fault scenario could be generated for it.
 
 **Version 1** manifests list only invariants that already have a scenario.
-The action reads every entry as `fault_status: generated`.
+The action reads every entry as `fault_status: generated`; setting
+`fault_status` on a version 1 entry is an error.
 
 **Version 2** manifests add `fault_status`, which must be set per invariant
 to `generated` or `not_generated`.
@@ -151,6 +162,11 @@ as a list of arguments:
 }
 ```
 
+A builtin `scenario:` entry fires probabilistically, so a run can end as
+invalid evidence — the fault simply didn't fire that time — with nothing
+wrong. Prefer a `config` scenario with `probability: 1.0` when the manifest
+entry is meant to be a proof, not a sample.
+
 A `not_generated` invariant has no `config` and no `scenario`. It requires
 `fault_reason` instead: a non-empty explanation of why no deterministic
 fault could be built. It still counts toward the manifest's total, so it
@@ -176,39 +192,67 @@ directory fails the manifest closed.
 
 - **Pin the action to a full commit SHA.** A tag or branch can move; a
   commit SHA cannot.
-- **Use `pull_request`, never `pull_request_target`.** `pull_request_target`
-  runs with the base repository's token and secrets while checking out the
-  pull request's code. Combined with this action's token access and a gate
-  that runs the repository's own code, that combination is unsafe.
+- **Use `pull_request`, never `pull_request_target`.** The danger with
+  `pull_request_target` is checking out and running the pull request's code
+  — which is what the gate does — while the workflow still holds that
+  trigger's write token and secrets.
 - **Network access is limited to two things:** downloading the one pinned
   faultkit release, and, only when `github-token` is set, calling the GitHub
   API to manage the PR comment. Nothing else — no telemetry, no other
   outbound calls.
-- **The gate runs with a scrubbed environment.** Each invariant's `gate`,
-  and faultkit itself, see the job's environment minus the action's own
+- **The gate's environment is scrubbed, but it is not a sandbox.** Each
+  invariant's `gate`, and faultkit itself, run without the action's own
   inputs (including `github-token`), the runner's `ACTIONS_*` tokens, and
   this step's workflow command files (`GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY`,
-  `GITHUB_STATE`, `GITHUB_ENV`, `GITHUB_PATH`). The gate is repository code,
-  and on a pull request it is the PR author's code.
-- **The PR comment is matched by a hidden marker, and only a bot-authored
-  comment is updated.** Anyone can comment on a pull request, so the action
-  never trusts comment ownership by text alone — it only updates a comment
-  whose author is a bot account and whose body carries the marker. Use the
-  workflow's `github.token` or a GitHub App token as `github-token`. A
-  personal access token is authored by a human account, so the bot check
-  never matches an old comment, and the action posts a new comment on every
-  run instead of updating one.
+  `GITHUB_STATE`, `GITHUB_ENV`, `GITHUB_PATH`) in their environment. That
+  keeps the token out of casual reach, but the gate still runs as the same
+  user as the action — the real protection is the trigger. On
+  `pull_request`, a fork's token is read-only and its secrets are withheld.
+  Keep `persist-credentials: false` on the checkout step (see the examples
+  above), so the job token is never written to `.git/config`, where the gate
+  could read it.
+- **The PR comment is matched by a hidden marker.** Anyone can comment on a
+  pull request, so the action never trusts comment ownership by text alone —
+  it updates the first comment whose author is a bot account (any bot
+  account, not only a comment this action wrote) and whose body carries the
+  marker. Use the workflow's `github.token` or a GitHub App token as
+  `github-token`. A personal access token is authored by a human account, so
+  the bot check never matches an old comment, and the action posts a new
+  comment on every run instead of updating one.
+- **All jobs on a pull request share one comment.** If more than one job in
+  a workflow (or more than one workflow) runs this action on the same PR,
+  the last one to finish overwrites the others' report, so pass
+  `github-token` from one job only. A `concurrency:` group on the workflow
+  keeps two runs of the same workflow from each creating their own comment.
+- **`faultkit-path` bypasses the sha256 pin.** Use it only with a binary you
+  trust. On `pull_request`, a path inside the checkout is controlled by the
+  pull request.
+
+## Network
+
+- **The release download redirects.** It starts at github.com and redirects
+  to GitHub's release-asset host. An egress allowlist, including on GHES,
+  needs to permit both.
+- **The gate keeps its own network access.** The gate is your application;
+  this action does not restrict what it can reach.
 
 ## Limits
 
 - **Windows runners are not supported.** faultkit ships Linux and macOS
-  binaries for amd64 and arm64 only; the action fails closed on any other
-  platform.
+  binaries for amd64 and arm64 only; the run fails with an error when a
+  generated invariant needs the faultkit binary on an unsupported platform.
 - **Invariants with `mode: ebpf` need a privileged runner.** Without one,
   faultkit exits with an error, and the invariant's row reports that error —
   it never passes silently.
 - **There is no per-invariant timeout.** Set the job's `timeout-minutes`, as
   in the examples above.
+- **The PR comment and the job summary are capped.** GitHub limits them to
+  60,000 and 1,000,000 UTF-8 bytes respectively. A report with more than 25
+  invariants collapses the full table into a `<details>` block, with rows
+  that need attention left visible above it. If a report would still
+  exceed its cap, rows that need attention are kept first and the rest
+  become "…and N more" — the full list is always in the job log. An error
+  message inside the Markdown is cut at 2,000 characters.
 
 ## Updating the pinned faultkit
 
@@ -218,7 +262,7 @@ a new faultkit release:
 
 1. Download that release's `checksums.txt` and `checksums.txt.sigstore.json`
    from the faultkit release page.
-2. Verify them:
+2. Verify them (needs cosign v2.4 or newer):
    ```shell
    cosign verify-blob \
      --bundle checksums.txt.sigstore.json \

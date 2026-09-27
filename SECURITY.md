@@ -24,12 +24,17 @@ not incidental behavior:
   interpolated into a shell command.
 - **Config path containment.** A manifest's `config` path is resolved
   relative to the manifest's own directory and, after symlinks are
-  resolved, must still be inside that directory. A manifest cannot point
-  `config` outside it.
-- **Gate environment scrubbing.** The gate and faultkit run with the job's
-  environment minus the action's own inputs (including `github-token`), the
-  runner's `ACTIONS_*` tokens, and this step's workflow command files. The
-  gate is the pull request author's own code.
+  resolved, must still be inside that directory's real path. A manifest
+  cannot point `config` outside it.
+- **The gate's environment is scrubbed, but it is not a sandbox.** The gate
+  and faultkit run without the action's own inputs (including
+  `github-token`), the runner's `ACTIONS_*` tokens, and this step's workflow
+  command files in their environment, but the gate — the pull request
+  author's own code — still runs as the same user as the action. The real
+  protection is the `pull_request` trigger: a fork's token is read-only and
+  its secrets are withheld. Workflows should set `persist-credentials: false`
+  on the checkout step, so the job token is never written to `.git/config`,
+  where the gate could read it.
 - **No telemetry.** The action makes no network calls beyond downloading
   the pinned faultkit release and, when `github-token` is set, calling the
   GitHub API to manage the PR comment.

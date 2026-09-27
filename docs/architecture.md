@@ -37,10 +37,11 @@ them into the threshold verdict that sets the exit code.
 
 | File | Responsibility |
 |---|---|
-| `src/index.js` | Entry point: reads the inputs, runs the pipeline, writes the log, the job summary, the outputs, and the comment, and sets the exit code. The only module that reads `process.env`. |
+| `src/main.js` | Entry point: calls `main()` unconditionally — no "am I the main module?" guard that could skip it. |
+| `src/index.js` | Runs the pipeline: reads the inputs, writes the log, the job summary, the outputs, and the comment, and returns the exit code. The only module that reads `process.env`. |
 | `src/manifest.js` | Manifest schema parsing, v1 compatibility, v2 validation, normalization into the invariant plan. |
 | `src/binary.js` | Platform mapping, the fixed release URL, download, sha256 verification, safe tar extraction. |
-| `src/runner.js` | Executes faultkit and the gate, reads `report/v1`, derives the proof state. |
+| `src/runner.js` | Runs faultkit, which runs the gate — one child process per invariant — reads `report/v1`, and derives the proof state. |
 | `src/results.js` | Aggregates proof states, calculates the score, applies threshold and hard-failure logic. |
 | `src/markdown.js` | Renders the prove-all table, the job summary, and the PR comment. |
 | `src/github.js` | Locates the PR, finds the existing marker comment, creates or updates it. The action's only GitHub mutation. |
@@ -119,10 +120,13 @@ The design constraint: those variables must reach that source and nothing
 else. `src/runner.js`'s `childEnv()` builds the environment the gate and
 faultkit see, and anything in it can end up in the log, the faultkit
 report, the job summary, or the PR comment — so a provider's token must
-never be added there. Instead, a future `ProviderLLMScenarioSource` would
-take an explicit allowlist of environment variable names, read only those,
-and use them only for its own call to the provider, before the replay
-engine ever runs.
+never be added there. An allowlist inside a process that also runs the gate
+cannot keep a key from that gate: whatever that process can read from its
+own environment, it can also pass down to the child process it spawns.
+Provider keys need isolation at the step or job level instead — one step or
+job holds the key and calls the provider, and a later one runs the replay
+engine and the gate without that key in its environment anywhere. Design
+only, not implemented.
 
 ### Future C: faultkit Cloud
 
