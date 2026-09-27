@@ -47,6 +47,10 @@ test('the summary counts every bucket', () => {
   );
 });
 
+test('no invariants is an error, never a pass', () => {
+  assert.equal(summarize([], 100).result, 'error');
+});
+
 test('the threshold input is a number from 0 to 100, default 100', () => {
   assert.equal(parseThreshold(''), 100);
   assert.equal(parseThreshold('80'), 80);

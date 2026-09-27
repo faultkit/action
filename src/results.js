@@ -48,6 +48,7 @@ export function parseThreshold(raw) {
  * evidence, or an error fails the run whatever the threshold.
  */
 export function summarize(rows, threshold) {
+  if (rows.length === 0) return errorSummary('the manifest lists no invariants', threshold);
   const counts = { proven: 0, failed: 0, invalid: 0, error: 0, not_generated: 0 };
   for (const row of rows) counts[kind(row.state)] += 1;
   const total = rows.length;
