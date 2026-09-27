@@ -23,6 +23,7 @@ export function escapeCell(text) {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/&/g, '&amp;')
+    .replace(/@/g, '@&#8203;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/([\\`*_[\]|~])/g, '\\$1');
@@ -67,7 +68,7 @@ function reasons(s) {
   if (s.errors) out.push(`Faultkit could not produce evidence for ${plural(s.errors, 'invariant')}.`);
   if (s.failed) out.push(`${plural(s.failed, 'invariant')} did not hold under an injected fault.`);
   if (s.invalid) out.push(`${plural(s.invalid, 'invariant')} produced no evidence: the fault was never injected.`);
-  if (s.belowThreshold) out.push(`Proof coverage of ${s.score}% is below the required ${s.threshold}%.`);
+  if (s.belowThreshold) out.push(`Proof coverage of ${s.score}% (${s.proven} of ${s.total}) is below the required ${s.threshold}%.`);
   return out;
 }
 

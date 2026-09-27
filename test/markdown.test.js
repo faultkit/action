@@ -71,6 +71,10 @@ test('repository text is escaped', () => {
   assert.ok(!md.includes('<img'));
 });
 
+test('a mention in repository text never pings anyone', () => {
+  assert.equal(escapeCell('ask @octocat'), 'ask @&#8203;octocat');
+});
+
 test('many invariants collapse the table but keep failures visible', () => {
   const rows = [...Array.from({ length: 399 }, (_, i) => row(`proven-${i}`, PROVEN)), row('refund-never-exceeds-limit', SILENT_FAILURE)];
   const md = reportMarkdown(summarize(rows, 0), rows);
