@@ -1,11 +1,10 @@
-// Entry point: reads the inputs, runs the pipeline, and reports through the
-// log, the job summary, the step outputs, the optional PR comment, and the
-// exit code. It is the only module that reads the process environment.
+// Runs the action: reads the inputs, runs the pipeline, and reports through
+// the log, the job summary, the step outputs, the optional PR comment, and
+// the exit code. It is the only module that reads the process environment.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { resolveFaultkit } from './binary.js';
 import { pullRequestNumber, upsertComment } from './github.js';
 import { ManifestScenarioSource } from './manifest.js';
@@ -104,10 +103,4 @@ export async function main(env = process.env, { fetchImpl = fetch, log = console
   }
   await postComment(env, inputs, reportMarkdown(summary, rows, { runUrl, limit: COMMENT_LIMIT }), fetchImpl, log);
   return summary.result === 'passed' ? 0 : 1;
-}
-
-// Node resolves symlinks in import.meta.url but not in argv, so compare real paths:
-// a runner whose work directory is a symlink must still run the check.
-if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = await main();
 }

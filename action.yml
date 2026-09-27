@@ -43,4 +43,4 @@ outputs:
     description: Where the faultkit report/v1 files are, relative to the repository root.
 runs:
   using: node24
-  main: src/index.js
+  main: src/main.js

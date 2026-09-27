@@ -137,6 +137,9 @@ test('started through a symlinked path, the action still runs', () => {
   const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'faultkit-link-')), 'action');
   fs.symlinkSync(fileURLToPath(new URL('..', import.meta.url)), link);
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'faultkit-empty-'));
-  const run = spawnSync(process.execPath, [path.join(link, 'src', 'index.js')], { env: { PATH: process.env.PATH, GITHUB_WORKSPACE: workspace }, encoding: 'utf8' });
-  assert.equal(run.status, 1, 'a missing manifest is an error, never a silent exit 0');
+  for (const nodeOptions of ['', '--preserve-symlinks-main']) {
+    const env = { PATH: process.env.PATH, GITHUB_WORKSPACE: workspace, ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}) };
+    const run = spawnSync(process.execPath, [path.join(link, 'src', 'main.js')], { env, encoding: 'utf8' });
+    assert.equal(run.status, 1, `a missing manifest is an error, never a silent exit 0 (NODE_OPTIONS=${nodeOptions})`);
+  }
 });
