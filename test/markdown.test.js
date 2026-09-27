@@ -98,3 +98,16 @@ test('the size limit counts bytes, not characters', () => {
   const md = reportMarkdown(summarize(rows, 0), rows, { limit: full.length });
   assert.ok(Buffer.byteLength(md, 'utf8') <= full.length);
 });
+
+test('a trimmed short report keeps its failures', () => {
+  const rows = [...Array.from({ length: 9 }, (_, i) => row(`proven-${i}`, PROVEN)), row('refund-never-exceeds-limit', SILENT_FAILURE)];
+  const md = reportMarkdown(summarize(rows, 0), rows, { limit: 900 });
+  assert.ok(Buffer.byteLength(md, 'utf8') <= 900);
+  assert.ok(md.includes('refund-never-exceeds-limit'));
+});
+
+test('a long error message is cut to fit', () => {
+  const md = reportMarkdown(errorSummary('x'.repeat(5000), 100), [], { limit: 3000 });
+  assert.ok(Buffer.byteLength(md, 'utf8') <= 3000);
+  assert.ok(md.includes('⚠️ **Error**'));
+});

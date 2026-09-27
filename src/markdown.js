@@ -14,6 +14,8 @@ const LABEL = {
   not_generated: '⚪ No fault scenario yet',
 };
 const SEVERITY = { error: 0, failed: 1, invalid: 2, not_generated: 3, proven: 4 };
+const worstFirst = (a, b) => SEVERITY[kind(a.state)] - SEVERITY[kind(b.state)];
+const MESSAGE_LIMIT = 2000;
 
 /** Repository-controlled text made safe for a Markdown table cell. */
 export function escapeCell(text) {
@@ -61,7 +63,7 @@ function table(rows) {
 
 function reasons(s) {
   const out = [];
-  if (s.message) out.push(`Faultkit could not run: ${escapeCell(s.message)}`);
+  if (s.message) out.push(`Faultkit could not run: ${escapeCell(String(s.message).slice(0, MESSAGE_LIMIT))}`);
   if (s.errors) out.push(`Faultkit could not produce evidence for ${plural(s.errors, 'invariant')}.`);
   if (s.failed) out.push(`${plural(s.failed, 'invariant')} did not hold under an injected fault.`);
   if (s.invalid) out.push(`${plural(s.invalid, 'invariant')} produced no evidence: the fault was never injected.`);
@@ -108,7 +110,7 @@ function footer(s, runUrl) {
 export function reportMarkdown(summary, rows, { runUrl = null, limit = COMMENT_LIMIT } = {}) {
   const collapsed = rows.length > FULL_TABLE_ROWS;
   const visible = collapsed
-    ? rows.filter((r) => kind(r.state) !== 'proven').sort((a, b) => SEVERITY[kind(a.state)] - SEVERITY[kind(b.state)])
+    ? rows.filter((r) => kind(r.state) !== 'proven').sort(worstFirst)
     : rows;
   const extras = [];
   if (collapsed) extras.push(`<details><summary>All ${rows.length} invariants</summary>`, '', ...table(rows), '', '</details>', '');
@@ -131,7 +133,8 @@ export function reportMarkdown(summary, rows, { runUrl = null, limit = COMMENT_L
   const fits = (t) => Buffer.byteLength(t, 'utf8') <= limit;
   let text = render(visible, true);
   if (fits(text)) return text;
-  let shown = visible;
+  // Trimming drops rows from the end, so the worst rows go first.
+  let shown = [...visible].sort(worstFirst);
   text = render(shown, false);
   while (!fits(text) && shown.length > 0) {
     shown = shown.slice(0, Math.floor(shown.length / 2));
