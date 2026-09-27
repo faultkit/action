@@ -101,14 +101,16 @@ jobs:
       # or actions/setup-python + pip install -r requirements.txt.
 
       - name: Prove resilience invariants
-        uses: faultkit/action@<full-commit-sha> # v1.0.0
+        uses: faultkit/action@48f7baf9cedc33be5d4afeb4d9fd9b92f686b912 # v1.0.0
         with:
           threshold: 100
           github-token: ${{ github.token }}
 ```
 
-Pin the action to a full commit SHA, as the placeholder shows. `v1.0.0` is
-not tagged yet; until it is, use a commit SHA from `main`.
+The example pins v1.0.0 by its full commit SHA. A tag can be moved to other
+code; a commit SHA cannot. To upgrade, copy the example again from this
+README, or take the commit of the newest
+[release](https://github.com/faultkit/action/releases).
 
 To skip the PR comment, drop `pull-requests: write` and `github-token`. The
 job summary and the exit code still carry the full result:
@@ -120,7 +122,7 @@ permissions:
 # ...
 
       - name: Prove resilience invariants
-        uses: faultkit/action@<full-commit-sha> # v1.0.0
+        uses: faultkit/action@48f7baf9cedc33be5d4afeb4d9fd9b92f686b912 # v1.0.0
         with:
           threshold: 80
 ```
