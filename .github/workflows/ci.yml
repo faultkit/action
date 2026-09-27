@@ -7,10 +7,15 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -21,15 +26,17 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         case:
-          - { name: all-proven, threshold: '100', expect: passed }
-          - { name: coverage-gap, threshold: '100', expect: failed }
-          - { name: coverage-gap, threshold: '60', expect: passed }
-          - { name: regression, threshold: '0', expect: failed }
-          - { name: never-fires, threshold: '0', expect: failed }
+          - { name: all-proven, threshold: '100', expect: passed, counts: '0/0/0' }
+          - { name: coverage-gap, threshold: '100', expect: failed, counts: '0/0/1' }
+          - { name: coverage-gap, threshold: '60', expect: passed, counts: '0/0/1' }
+          - { name: regression, threshold: '0', expect: failed, counts: '1/0/0' }
+          - { name: never-fires, threshold: '0', expect: failed, counts: '0/1/0' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - id: faultkit
         uses: ./
         continue-on-error: true
@@ -40,6 +47,13 @@ jobs:
         env:
           RESULT: ${{ steps.faultkit.outputs.result }}
           EXPECT: ${{ matrix.case.expect }}
+          OUTCOME: ${{ steps.faultkit.outcome }}
+          COUNTS: ${{ steps.faultkit.outputs.failed }}/${{ steps.faultkit.outputs.invalid }}/${{ steps.faultkit.outputs['not-generated'] }}
+          EXPECT_COUNTS: ${{ matrix.case.counts }}
         run: |
-          echo "result=$RESULT expected=$EXPECT"
+          want=failure
+          if [ "$EXPECT" = passed ]; then want=success; fi
+          echo "result=$RESULT expected=$EXPECT outcome=$OUTCOME want=$want counts=$COUNTS expected=$EXPECT_COUNTS"
           test "$RESULT" = "$EXPECT"
+          test "$OUTCOME" = "$want"
+          test "$COUNTS" = "$EXPECT_COUNTS"
