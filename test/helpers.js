@@ -34,6 +34,9 @@ function tarHeader(name, size, type) {
   h.write(type, 156);
   h.write('ustar\0', 257);
   h.write('00', 263);
+  h.fill(' ', 148, 156);
+  const sum = h.reduce((a, b) => a + b, 0);
+  h.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148);
   return h;
 }
 
