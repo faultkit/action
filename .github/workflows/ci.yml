@@ -1,0 +1,45 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: npm test
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        case:
+          - { name: all-proven, threshold: '100', expect: passed }
+          - { name: coverage-gap, threshold: '100', expect: failed }
+          - { name: coverage-gap, threshold: '60', expect: passed }
+          - { name: regression, threshold: '0', expect: failed }
+          - { name: never-fires, threshold: '0', expect: failed }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: faultkit
+        uses: ./
+        continue-on-error: true
+        with:
+          manifest: test/acceptance/${{ matrix.case.name }}/.faultkit/invariants/manifest.json
+          threshold: ${{ matrix.case.threshold }}
+      - name: Check the verdict
+        env:
+          RESULT: ${{ steps.faultkit.outputs.result }}
+          EXPECT: ${{ matrix.case.expect }}
+        run: |
+          echo "result=$RESULT expected=$EXPECT"
+          test "$RESULT" = "$EXPECT"
