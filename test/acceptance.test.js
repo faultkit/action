@@ -8,13 +8,15 @@ import { main } from '../src/index.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const skip = process.env.FAULTKIT_ACCEPTANCE === '1' ? false : 'set FAULTKIT_ACCEPTANCE=1 to download faultkit and run the fixtures';
+const outputs = (file) => Object.fromEntries(fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
 
-for (const [name, threshold, expected] of [
-  ['all-proven', '100', 'passed'],
-  ['coverage-gap', '100', 'failed'],
-  ['coverage-gap', '60', 'passed'],
-  ['regression', '0', 'failed'],
-  ['never-fires', '0', 'failed'],
+// counts is failed/invalid/not-generated.
+for (const [name, threshold, expected, counts] of [
+  ['all-proven', '100', 'passed', '0/0/0'],
+  ['coverage-gap', '100', 'failed', '0/0/1'],
+  ['coverage-gap', '60', 'passed', '0/0/1'],
+  ['regression', '0', 'failed', '1/0/0'],
+  ['never-fires', '0', 'failed', '0/1/0'],
 ]) {
   test(`acceptance: ${name} at threshold ${threshold} is ${expected}`, { skip }, async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'faultkit-acceptance-'));
@@ -24,7 +26,10 @@ for (const [name, threshold, expected] of [
       PATH: process.env.PATH, HOME: process.env.HOME, GITHUB_WORKSPACE: ROOT, RUNNER_TEMP: tmp, GITHUB_OUTPUT: output,
       INPUT_MANIFEST: `test/acceptance/${name}/.faultkit/invariants/manifest.json`, INPUT_THRESHOLD: threshold,
     };
-    await main(env);
-    assert.equal(/^result=(.*)$/m.exec(fs.readFileSync(output, 'utf8'))[1], expected);
+    const code = await main(env);
+    const out = outputs(output);
+    assert.equal(out.result, expected);
+    assert.equal(`${out.failed}/${out.invalid}/${out['not-generated']}`, counts);
+    assert.equal(code, expected === 'passed' ? 0 : 1);
   });
 }

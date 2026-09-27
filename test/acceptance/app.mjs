@@ -5,7 +5,10 @@
 export async function triage(ticket, { guarded }) {
   let label = null;
   try {
-    const res = await fetch(`${process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'}/chat/completions`, {
+    const base = process.env.OPENAI_BASE_URL;
+    // Only faultkit's base URL: a missing one must never become a real request.
+    if (!base) throw new Error('OPENAI_BASE_URL is not set');
+    const res = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer test-key' },
       body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: ticket }] }),
