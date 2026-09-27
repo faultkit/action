@@ -1,0 +1,6 @@
+# Local working notes, not published.
+prompt.txt
+docs/superpowers/
+
+# Written by the tests and the acceptance runs.
+.faultkit/reports/
