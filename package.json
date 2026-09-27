@@ -1,0 +1,10 @@
+{
+  "name": "faultkit-action",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Replay faultkit invariants in CI and report which ones hold under fault.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=24" },
+  "scripts": { "test": "node --test test/*.test.js" }
+}
