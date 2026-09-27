@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveFaultkit } from './binary.js';
-import { pullRequestNumber, upsertComment } from './github.js';
+import { GitHubApiError, pullRequestNumber, upsertComment } from './github.js';
 import { ManifestScenarioSource } from './manifest.js';
 import { COMMENT_LIMIT, MARKER, SUMMARY_LIMIT, consoleTable, reportMarkdown } from './markdown.js';
 import { errorSummary, parseThreshold, summarize } from './results.js';
@@ -51,7 +51,9 @@ async function postComment(env, inputs, body, fetchImpl, log) {
     });
     log(`faultkit: ${how} the PR comment`);
   } catch (err) {
-    warning(log, `could not post the faultkit PR comment (${err.message}); the verdict is unchanged. A fork PR's token is read-only; the job summary has the full report.`);
+    // Only our own API errors are safe to print: a fetch error can quote the Authorization header.
+    const reason = err instanceof GitHubApiError ? err.message : 'the GitHub API request failed';
+    warning(log, `could not post the faultkit PR comment (${reason}); the verdict is unchanged. A fork PR's token is read-only; the job summary has the full report.`);
   }
 }
 

@@ -121,8 +121,20 @@ test('a comment that cannot be posted leaves the verdict alone', async () => {
   const ws = makeWorkspace({ version: 1, invariants: [entry('a')] });
   const fetchImpl = async () => new Response('forbidden', { status: 403 });
   const { env, files } = githubEnv(ws, { 'INPUT_GITHUB-TOKEN': 'ghs_test', GITHUB_EVENT_PATH: prEvent(ws) });
-  assert.equal(await main(env, { fetchImpl, log: quiet }), 0);
+  const lines = [];
+  assert.equal(await main(env, { fetchImpl, log: (l) => lines.push(String(l)) }), 0);
   assert.equal(outputs(files.GITHUB_OUTPUT).result, 'passed');
+  assert.ok(lines.some((l) => l.startsWith('::warning::')));
+});
+
+test('a failed comment never logs the token', async () => {
+  const ws = makeWorkspace({ version: 1, invariants: [entry('a')] });
+  const lines = [];
+  const fetchImpl = async () => { throw new TypeError('Headers.append: "Bearer ghs_test" is an invalid header value.'); };
+  const { env } = githubEnv(ws, { 'INPUT_GITHUB-TOKEN': 'ghs_test', GITHUB_EVENT_PATH: prEvent(ws) });
+  assert.equal(await main(env, { fetchImpl, log: (l) => lines.push(String(l)) }), 0);
+  assert.ok(lines.some((l) => l.startsWith('::warning::')), 'the failure is a warning');
+  assert.ok(!lines.join('\n').includes('ghs_test'), 'the token never reaches the log');
 });
 
 test('without a token nothing is sent to GitHub', async () => {
