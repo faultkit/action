@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "invariants": [
+    {
+      "id": "never-reaches-the-model",
+      "invariant": "A ticket is stored as triaged only when the model classified it.",
+      "config": "outage.yaml",
+      "base_url": true,
+      "gate": ["node", "test/acceptance/gate.mjs", "idle"]
+    }
+  ]
+}

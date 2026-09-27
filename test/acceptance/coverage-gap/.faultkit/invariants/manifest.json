@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "invariants": [
+    {
+      "id": "held-on-outage-a",
+      "invariant": "A ticket is stored as triaged only when the model classified it.",
+      "fault_status": "generated",
+      "config": "outage.yaml",
+      "base_url": true,
+      "gate": ["node", "test/acceptance/gate.mjs", "guarded"]
+    },
+    {
+      "id": "held-on-outage-b",
+      "invariant": "A ticket is stored as triaged only when the model classified it.",
+      "fault_status": "generated",
+      "config": "outage.yaml",
+      "base_url": true,
+      "gate": ["node", "test/acceptance/gate.mjs", "guarded"]
+    },
+    {
+      "id": "human-approval-is-recorded",
+      "invariant": "Every regulated action has a recorded human approval.",
+      "shape": "S8",
+      "fault_status": "not_generated",
+      "fault_reason": "No deterministic injectable boundary was identified."
+    }
+  ]
+}

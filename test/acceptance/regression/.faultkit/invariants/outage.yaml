@@ -1,0 +1,13 @@
+name: model-outage
+description: Every chat completion returns 503, as in a provider outage.
+experiments:
+  - name: outage
+    match:
+      host: "api.openai.com"
+      path: /v1/chat/completions
+    fault:
+      http_status: 503
+      response_headers:
+        Retry-After: "1"
+      response_body: '{"error":{"message":"The server is overloaded","type":"server_error"}}'
+    probability: 1.0
