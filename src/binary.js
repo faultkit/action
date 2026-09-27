@@ -16,7 +16,6 @@ export const ASSETS = Object.freeze({
   'darwin-amd64': { file: 'faultkit_0.1.3_darwin_amd64.tar.gz', sha256: 'a88be35adbc57fabd7532de8e98bfc2a250b5c7767ed6b45aadb6985bd737d6c' },
   'darwin-arm64': { file: 'faultkit_0.1.3_darwin_arm64.tar.gz', sha256: 'b1843a150aa13ba2427b75d2873373b14152b925faef746668ff298c6f93a4a6' },
 });
-const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 
 export class BinaryError extends Error {
   constructor(message) {
@@ -89,9 +88,7 @@ async function download(url, fetchImpl) {
     throw new BinaryError(`could not download ${url} (${err.message})`);
   }
   if (!res.ok) throw new BinaryError(`could not download ${url}: HTTP ${res.status}`);
-  const archive = Buffer.from(await res.arrayBuffer());
-  if (archive.length > MAX_ARCHIVE_BYTES) throw new BinaryError('the faultkit archive is larger than any release');
-  return archive;
+  return Buffer.from(await res.arrayBuffer());
 }
 
 /**
