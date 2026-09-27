@@ -1,0 +1,46 @@
+name: Faultkit resilience check
+description: Replay the invariants in .faultkit/invariants/manifest.json under their injected faults and report which ones hold.
+author: faultkit
+branding:
+  icon: shield
+  color: red
+inputs:
+  manifest:
+    description: Path to the invariant manifest, relative to the repository root.
+    required: false
+    default: .faultkit/invariants/manifest.json
+  threshold:
+    description: >-
+      Minimum proof score from 0 to 100: proven invariants over all known
+      invariants, including those with no generated fault. A silent failure,
+      invalid evidence, or an error fails the run at any threshold.
+    required: false
+    default: '100'
+  github-token:
+    description: Used only to create or update the PR comment. Without it the comment is skipped.
+    required: false
+  faultkit-path:
+    description: Run this faultkit binary instead of downloading the release this action pins.
+    required: false
+outputs:
+  result:
+    description: passed, failed, or error.
+  score:
+    description: Proven invariants as a percentage of all known invariants.
+  threshold:
+    description: The threshold the score was compared with.
+  total:
+    description: Invariants in the manifest.
+  proven:
+    description: Invariants proven under fault.
+  failed:
+    description: Invariants with a confirmed silent failure.
+  invalid:
+    description: Invariants whose fault was never injected.
+  not-generated:
+    description: Invariants with no generated fault scenario.
+  reports-directory:
+    description: Where the faultkit report/v1 files are, relative to the repository root.
+runs:
+  using: node24
+  main: src/index.js
