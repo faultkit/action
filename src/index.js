@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveFaultkit } from './binary.js';
 import { GitHubApiError, pullRequestNumber, upsertComment } from './github.js';
-import { ManifestScenarioSource } from './manifest.js';
+import { ManifestScenarioSource, inside } from './manifest.js';
 import { COMMENT_LIMIT, MARKER, SUMMARY_LIMIT, consoleTable, outcomesTable, reportMarkdown } from './markdown.js';
 import { coverage, errorSummary, parseThreshold, summarize } from './results.js';
 import { runInvariant } from './runner.js';
@@ -23,7 +23,25 @@ export function readInputs(env) {
     values: input('values'),
     requireValues: input('require-values'),
     failOnUncovered: input('fail-on-uncovered'),
+    workingDirectory: input('working-directory'),
   };
+}
+
+/**
+ * The project root: `working-directory` resolved against the repository root,
+ * which must contain it, symlinks included. The gates run there, and the
+ * other inputs' relative paths start there.
+ */
+export function resolveWorkingDirectory(repo, input) {
+  const root = path.resolve(repo);
+  const dir = path.resolve(root, input || '.');
+  if (dir === root) return root;
+  const real = fs.existsSync(dir) ? fs.realpathSync(dir) : null;
+  if (!inside(root, dir) || (real && !inside(fs.realpathSync(root), real))) {
+    throw new RangeError(`working-directory ${input} must stay inside the repository`);
+  }
+  if (!real || !fs.statSync(real).isDirectory()) throw new RangeError(`working-directory ${input} is not a directory`);
+  return dir;
 }
 
 /** A boolean input, as GitHub spells it: true or false, in any case. Empty is false. */
@@ -70,13 +88,16 @@ async function postComment(env, inputs, body, fetchImpl, log) {
 
 export async function main(env = process.env, { fetchImpl = fetch, log = console.log } = {}) {
   const inputs = readInputs(env);
-  const workspace = env.GITHUB_WORKSPACE || process.cwd();
-  const reportsDir = path.join(workspace, '.faultkit', 'reports');
+  const repo = path.resolve(env.GITHUB_WORKSPACE || process.cwd());
+  let workspace = repo;
+  let reportsDir = path.join(repo, '.faultkit', 'reports');
   let threshold = null;
   const rows = [];
   let summary;
   let cov = null;
   try {
+    workspace = resolveWorkingDirectory(repo, inputs.workingDirectory);
+    reportsDir = path.join(workspace, '.faultkit', 'reports');
     threshold = parseThreshold(inputs.threshold);
     const requireValues = parseBoolean('require-values', inputs.requireValues);
     const failOnUncovered = parseBoolean('fail-on-uncovered', inputs.failOnUncovered);
@@ -121,7 +142,7 @@ export async function main(env = process.env, { fetchImpl = fetch, log = console
     const outputs = {
       result: summary.result, score: summary.score, threshold: summary.threshold ?? '', total: summary.total,
       proven: summary.proven, failed: summary.failed, invalid: summary.invalid,
-      'not-generated': summary.notGenerated, 'reports-directory': path.relative(workspace, reportsDir),
+      'not-generated': summary.notGenerated, 'reports-directory': path.relative(repo, reportsDir),
       outcomes: cov?.declared ?? 0, covered: cov?.covered ?? 0, uncovered: cov?.uncovered ?? 0,
     };
     fs.appendFileSync(env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''));

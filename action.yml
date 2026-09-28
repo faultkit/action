@@ -36,6 +36,13 @@ inputs:
     description: true to fail the run, like a threshold miss, when a declared outcome has no invariant.
     required: false
     default: 'false'
+  working-directory:
+    description: >-
+      The project's directory, relative to the repository root, for a
+      repository that keeps projects in subdirectories. The gates run there,
+      and the other inputs' relative paths start there.
+    required: false
+    default: '.'
 outputs:
   result:
     description: passed, failed, or error.

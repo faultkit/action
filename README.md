@@ -199,6 +199,17 @@ All inputs are optional.
 | `values` | Path to the values file, relative to the repository root. | the manifest's `values`, else `.faultkit/values.md` |
 | `require-values` | `true` to stop with an error, before anything runs, when no values file is found. | `false` |
 | `fail-on-uncovered` | `true` to fail the run, like a threshold miss, when a declared outcome has no invariant. | `false` |
+| `working-directory` | The project's directory, relative to the repository root. The gates run there, and the other inputs' relative paths start there. | `.` |
+
+In a repository that keeps projects in subdirectories, set
+`working-directory` to the project's directory. The action finds the
+manifest, the values file, and the reports there, and runs the gates there:
+
+```yaml
+        with:
+          working-directory: services/checkout
+          github-token: ${{ github.token }}
+```
 
 ## Outputs
 

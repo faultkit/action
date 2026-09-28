@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Stand-in for the faultkit binary. It appends its argv and env names to
+// Stand-in for the faultkit binary. It appends its argv, cwd, and env names to
 // $FAKE_FAULTKIT_LOG, writes a report/v1 file, and exits with the code the
 // test chose for the scenario in $FAKE_FAULTKIT_PLAN:
 //   { "<config file name or builtin>": { "exit": 1, "fired": 2, "report": true, "schema": "…" } }
@@ -12,7 +12,7 @@ const key = flag('--config') ? path.basename(flag('--config')) : flag('--scenari
 const plan = { exit: 0, fired: 1, report: true, ...(JSON.parse(process.env.FAKE_FAULTKIT_PLAN ?? '{}')[key] ?? {}) };
 
 if (process.env.FAKE_FAULTKIT_LOG) {
-  fs.appendFileSync(process.env.FAKE_FAULTKIT_LOG, `${JSON.stringify({ args, env: Object.keys(process.env).sort() })}\n`);
+  fs.appendFileSync(process.env.FAKE_FAULTKIT_LOG, `${JSON.stringify({ args, cwd: process.cwd(), env: Object.keys(process.env).sort() })}\n`);
 }
 const report = flag('--report');
 if (report && plan.report) {

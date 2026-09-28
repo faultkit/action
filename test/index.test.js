@@ -230,3 +230,32 @@ test('a boolean input that is not true or false is an error', async () => {
   assert.equal(await main(env, { log: quiet }), 1);
   assert.ok(fs.readFileSync(files.GITHUB_STEP_SUMMARY, 'utf8').includes('fail-on-uncovered must be true or false'));
 });
+
+test('a project in a subdirectory runs its gates there and finds its values file there', async () => {
+  const ws = withValues(v3(entry('a', { outcome: 'UO-1' })));
+  const repo = path.dirname(ws.root);
+  const { env, files } = githubEnv(ws, { GITHUB_WORKSPACE: repo, 'INPUT_WORKING-DIRECTORY': path.basename(ws.root) });
+  assert.equal(await main(env, { log: quiet }), 0);
+  const out = outputs(files.GITHUB_OUTPUT);
+  assert.equal(out.covered, '1');
+  assert.equal(out['reports-directory'], path.join(path.basename(ws.root), '.faultkit', 'reports'));
+  const run = JSON.parse(fs.readFileSync(files.FAKE_FAULTKIT_LOG, 'utf8').trim().split('\n')[0]);
+  assert.equal(fs.realpathSync(run.cwd), fs.realpathSync(ws.root));
+});
+
+test('a working-directory outside the repository, or not a directory, is an error', async () => {
+  for (const [dir, message] of [['../elsewhere', 'must stay inside the repository'], ['missing', 'is not a directory']]) {
+    const ws = makeWorkspace({ version: 1, invariants: [entry('a')] });
+    const { env, files } = githubEnv(ws, { 'INPUT_WORKING-DIRECTORY': dir });
+    assert.equal(await main(env, { log: quiet }), 1, dir);
+    assert.ok(fs.readFileSync(files.GITHUB_STEP_SUMMARY, 'utf8').includes(message), dir);
+    assert.equal(ran(files), false, dir);
+  }
+});
+
+test('a workspace path with a trailing slash is the repository root', async () => {
+  const ws = makeWorkspace({ version: 1, invariants: [entry('a')] });
+  const { env, files } = githubEnv(ws, { GITHUB_WORKSPACE: `${ws.root}${path.sep}` });
+  assert.equal(await main(env, { log: quiet }), 0);
+  assert.equal(outputs(files.GITHUB_OUTPUT)['reports-directory'], path.join('.faultkit', 'reports'));
+});
