@@ -20,7 +20,7 @@ invariant no longer holds.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/pr-comment-dark.png">
-  <img alt="The faultkit PR comment for a failed check: one silent failure, three invariants proven under fault, and one invariant without a fault scenario" src="assets/pr-comment-light.png" width="760">
+  <img alt="The faultkit PR comment for a failed check: outcome coverage for four declared outcomes, one broken by a silent failure and one with no invariant yet, then the invariants table with one silent failure, three invariants proven under fault, and one without a fault scenario" src="assets/pr-comment-light.png" width="760">
 </picture>
 
 <sub>The comment on a sample pull request. The PR's new fallback stored a
@@ -158,6 +158,34 @@ Both examples trigger on `pull_request`, never on `pull_request_target`. See
 - **Step outputs and the exit code.** The step fails unless `result` is
   `passed`.
 
+## Declared outcomes
+
+The skill can also keep `.faultkit/values.md`: the business value and the
+outcomes a team says must never happen, each with an id such as `UO-1`.
+Manifest version 3 links each invariant to the outcome it protects. When the
+action finds a values file, the job summary and the PR comment open with an
+**Outcome coverage** block. It has one row per declared outcome, with the
+outcome's text, the invariants that protect it and their states, and the
+worst of those states. An outcome that no invariant names shows ⚪ No
+invariant yet. The log prints the same table as the skill's helper:
+
+```text
+=== outcomes ===
+outcome  worst state               invariants
+UO-1     silent failure confirmed  fallback-never-triaged
+                                   revenue-stopped-always-pages
+UO-2     no invariant yet          -
+declared 2, covered 1, uncovered 1, unlinked invariants 0
+```
+
+The action looks for the file in this order: the `values` input, the
+manifest's `values`, and `.faultkit/values.md`. With no file, it skips
+coverage, unless `require-values` is `true`. Coverage doesn't change the
+verdict unless `fail-on-uncovered` is `true`; then an uncovered outcome
+fails the run like a threshold miss. Every outcome link is checked before
+anything runs: a link to an outcome the file doesn't declare, or a link with
+no values file, is an error.
+
 ## Inputs
 
 All inputs are optional.
@@ -168,6 +196,9 @@ All inputs are optional.
 | `threshold` | Minimum proof score from 0 to 100: proven invariants over all known invariants, including those with no generated fault. A silent failure, invalid evidence, or an error fails the run at any threshold. | `100` |
 | `github-token` | Used only to create or update the PR comment. Without it, there is no comment. | none |
 | `faultkit-path` | Run this faultkit binary instead of downloading the release this action pins. | none |
+| `values` | Path to the values file, relative to the repository root. | the manifest's `values`, else `.faultkit/values.md` |
+| `require-values` | `true` to stop with an error, before anything runs, when no values file is found. | `false` |
+| `fail-on-uncovered` | `true` to fail the run, like a threshold miss, when a declared outcome has no invariant. | `false` |
 
 ## Outputs
 
@@ -182,6 +213,9 @@ All inputs are optional.
 | `invalid` | Invariants whose fault was never injected. |
 | `not-generated` | Invariants with no generated fault scenario. |
 | `reports-directory` | Where the faultkit report/v1 files are, relative to the repository root. |
+| `outcomes` | Outcomes declared in the values file; `0` without one. |
+| `covered` | Declared outcomes that at least one invariant names. |
+| `uncovered` | Declared outcomes that no invariant names. |
 
 ## Threshold
 
@@ -213,6 +247,13 @@ deterministic fault scenario could be built for it.
   version 1 manifest is an error.
 - **Version 2** adds `fault_status`, which each entry sets to `generated` or
   `not_generated`.
+- **Version 3** adds outcome links. Each entry may name the outcome it
+  protects, as `"outcome": "UO-1"`, and the top level may set `values`, the
+  values file's path relative to the repository root, which must stay inside
+  it. `registry` and an entry's `source` are reserved for vendored registry
+  scenarios. A `source` carries the sha256 of its `config` file, which the
+  action checks offline before anything runs. A version 3 field in a version
+  1 or 2 manifest is an error.
 
 A `generated` invariant needs a `gate`: the test command, as a list of
 arguments. It also needs exactly one of `config` (a scenario file) or
