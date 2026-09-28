@@ -8,9 +8,10 @@ import path from 'node:path';
 import { resolveFaultkit } from './binary.js';
 import { GitHubApiError, pullRequestNumber, upsertComment } from './github.js';
 import { ManifestScenarioSource } from './manifest.js';
-import { COMMENT_LIMIT, MARKER, SUMMARY_LIMIT, consoleTable, reportMarkdown } from './markdown.js';
-import { errorSummary, parseThreshold, summarize } from './results.js';
+import { COMMENT_LIMIT, MARKER, SUMMARY_LIMIT, consoleTable, outcomesTable, reportMarkdown } from './markdown.js';
+import { coverage, errorSummary, parseThreshold, summarize } from './results.js';
 import { runInvariant } from './runner.js';
+import { ValuesError, checkOutcomes, loadValues, resolveValuesPath } from './values.js';
 
 export function readInputs(env) {
   const input = (name) => (env[`INPUT_${name.toUpperCase()}`] ?? '').trim();
@@ -19,7 +20,17 @@ export function readInputs(env) {
     threshold: input('threshold'),
     token: input('github-token'),
     faultkitPath: input('faultkit-path'),
+    values: input('values'),
+    requireValues: input('require-values'),
+    failOnUncovered: input('fail-on-uncovered'),
   };
+}
+
+/** A boolean input, as GitHub spells it: true or false, in any case. Empty is false. */
+export function parseBoolean(name, raw) {
+  if (raw === '') return false;
+  if (!/^(true|false)$/i.test(raw)) throw new RangeError(`${name} must be true or false, got "${raw}"`);
+  return raw.toLowerCase() === 'true';
 }
 
 // Workflow command escaping, as in @actions/core.
@@ -64,9 +75,18 @@ export async function main(env = process.env, { fetchImpl = fetch, log = console
   let threshold = null;
   const rows = [];
   let summary;
+  let cov = null;
   try {
     threshold = parseThreshold(inputs.threshold);
+    const requireValues = parseBoolean('require-values', inputs.requireValues);
+    const failOnUncovered = parseBoolean('fail-on-uncovered', inputs.failOnUncovered);
     const plan = await new ManifestScenarioSource({ manifestPath: path.resolve(workspace, inputs.manifest) }).discover();
+    // Values and outcome links are checked before anything runs.
+    const valuesFile = resolveValuesPath({ workspace, input: inputs.values, manifestValues: plan.values });
+    const valuesName = path.relative(workspace, valuesFile.file);
+    if (!valuesFile.exists && requireValues) throw new ValuesError(`values file ${valuesName} not found, and require-values is set`);
+    const values = valuesFile.exists ? loadValues(valuesFile.file, valuesName) : null;
+    checkOutcomes(plan.invariants, values, valuesName);
     const binary = plan.invariants.some((inv) => inv.faultStatus === 'generated')
       ? await resolveFaultkit({
         faultkitPath: inputs.faultkitPath ? path.resolve(workspace, inputs.faultkitPath) : '',
@@ -79,12 +99,14 @@ export async function main(env = process.env, { fetchImpl = fetch, log = console
       if (inv.faultStatus === 'generated') log(`\n=== invariant: ${inv.id} ===\n${inv.invariant}`);
       rows.push(await runInvariant({ binary, inv, reportsDir, cwd: workspace, env }));
     }
-    summary = summarize(rows, threshold);
+    cov = values ? coverage(values, rows) : null;
+    summary = summarize(rows, threshold, { uncovered: cov?.uncovered ?? 0, failOnUncovered });
   } catch (err) {
     summary = errorSummary(err.message, threshold);
   }
 
   if (rows.length) log(`\n${consoleTable(rows)}\n`);
+  if (cov) log(`${outcomesTable(cov)}\n`);
   const verdict = verdictLine(summary);
   if (summary.result === 'passed') log(verdict);
   else error(log, summary.message ? `${verdict}: ${summary.message}` : verdict);
@@ -93,16 +115,17 @@ export async function main(env = process.env, { fetchImpl = fetch, log = console
     ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`
     : null;
   if (env.GITHUB_STEP_SUMMARY) {
-    fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `${reportMarkdown(summary, rows, { runUrl, limit: SUMMARY_LIMIT })}\n`);
+    fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `${reportMarkdown(summary, rows, { runUrl, limit: SUMMARY_LIMIT, coverage: cov })}\n`);
   }
   if (env.GITHUB_OUTPUT) {
     const outputs = {
       result: summary.result, score: summary.score, threshold: summary.threshold ?? '', total: summary.total,
       proven: summary.proven, failed: summary.failed, invalid: summary.invalid,
       'not-generated': summary.notGenerated, 'reports-directory': path.relative(workspace, reportsDir),
+      outcomes: cov?.declared ?? 0, covered: cov?.covered ?? 0, uncovered: cov?.uncovered ?? 0,
     };
     fs.appendFileSync(env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''));
   }
-  await postComment(env, inputs, reportMarkdown(summary, rows, { runUrl, limit: COMMENT_LIMIT }), fetchImpl, log);
+  await postComment(env, inputs, reportMarkdown(summary, rows, { runUrl, limit: COMMENT_LIMIT, coverage: cov }), fetchImpl, log);
   return summary.result === 'passed' ? 0 : 1;
 }

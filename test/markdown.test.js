@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { COMMENT_LIMIT, MARKER, consoleTable, escapeCell, reportMarkdown } from '../src/markdown.js';
-import { INVALID_EVIDENCE, NOT_GENERATED, PROVEN, SILENT_FAILURE, errorSummary, summarize } from '../src/results.js';
+import { COMMENT_LIMIT, MARKER, consoleTable, escapeCell, outcomesTable, reportMarkdown } from '../src/markdown.js';
+import { INVALID_EVIDENCE, NOT_GENERATED, PROVEN, SILENT_FAILURE, coverage, errorSummary, summarize } from '../src/results.js';
 
 const row = (id, state, reason = 'No deterministic injectable boundary was identified.') => ({
   id,
@@ -42,9 +42,11 @@ test('a passing report shows coverage, threshold, and the table', () => {
   for (const want of [
     '## Faultkit resilience check', '✅ **Passed**', '**Proof coverage:** 8 / 10 invariants proven — **80%**',
     '**Required threshold:** 80%', '| `inv-0` | generated | 1 | 0 | ✅ Proven under fault |',
-    '| `x` | not generated | — | — | ⚪ No fault scenario yet |', '- ⚪ Fault not generated: 2', '- **Score: 80%**',
+    '| `x` | not generated | — | — | ⚪ No fault scenario yet |',
     '[View workflow run](https://github.com/acme/shop/actions/runs/42)',
   ]) assert.ok(md.includes(want), want);
+  // The header carries the counts, so there is no separate summary list.
+  assert.ok(!md.includes('### Summary'));
 });
 
 test('a failing report says why', () => {
@@ -91,8 +93,9 @@ test('a report too long for a comment is trimmed, failures first', () => {
   ];
   const md = reportMarkdown(summarize(rows, 0), rows);
   assert.ok(md.length <= COMMENT_LIMIT, `${md.length}`);
+  assert.ok(md.includes('### Needs attention'));
   assert.ok(md.includes('refund-never-exceeds-limit'));
-  assert.ok(md.includes('- ❌ Failed: 1'));
+  assert.ok(md.includes('1 invariant did not hold under an injected fault.'));
   assert.ok(md.includes('more; the full list is in the workflow run.'));
 });
 
@@ -114,4 +117,74 @@ test('a long error message is cut to fit', () => {
   const md = reportMarkdown(errorSummary('x'.repeat(5000), 100), [], { limit: 3000 });
   assert.ok(Buffer.byteLength(md, 'utf8') <= 3000);
   assert.ok(md.includes('⚠️ **Error**'));
+});
+
+const linked = (id, state, outcome) => ({ ...row(id, state), outcome });
+const values = (...outcomes) => ({ outcomes: outcomes.map(([id, text]) => ({ id, text })), inferred: false });
+
+test('outcome coverage leads the report, with the text and worst state of each outcome', () => {
+  const rows = [linked('paid', PROVEN, 'UO-1'), linked('route', PROVEN, 'UO-2'), linked('charge', SILENT_FAILURE, 'UO-2'), row('loose', PROVEN)];
+  const cov = coverage(values(['UO-1', 'A paid invoice is sent to collections.'], ['UO-2', 'x'.repeat(130)], ['UO-3', 'A customer is charged twice.']), rows);
+  const md = reportMarkdown(summarize(rows, 0), rows, { coverage: cov });
+  for (const want of [
+    '### Outcome coverage',
+    '| UO-1 | A paid invoice is sent to collections. | ✅ `paid` | ✅ Proven under fault |',
+    `| UO-2 | ${'x'.repeat(119)}… | ✅ \`route\`<br>❌ \`charge\` | ❌ Silent failure confirmed |`,
+    '| UO-3 | A customer is charged twice. | — | ⚪ No invariant yet |',
+    '3 declared · 2 covered · 1 uncovered · 1 unlinked invariant',
+    '### Invariants',
+  ]) assert.ok(md.includes(want), want);
+  assert.ok(md.indexOf('### Outcome coverage') < md.indexOf('### Invariants'));
+  // With a values file, the coverage block carries the business meaning.
+  assert.ok(!md.includes('`charge`: charge holds'));
+});
+
+test('an inferred values file is marked in the heading', () => {
+  const rows = [linked('paid', PROVEN, 'UO-1')];
+  const cov = coverage({ ...values(['UO-1', 'a']), inferred: true }, rows);
+  assert.ok(reportMarkdown(summarize(rows, 0), rows, { coverage: cov }).includes('### Outcome coverage (inferred)'));
+});
+
+test('without a values file, a row that needs attention states its invariant', () => {
+  const rows = [row('paid', PROVEN), row('refund-never-exceeds-limit', SILENT_FAILURE), row('never-fired', INVALID_EVIDENCE)];
+  const md = reportMarkdown(summarize(rows, 0), rows);
+  assert.ok(md.includes('- ❌ `refund-never-exceeds-limit`: refund-never-exceeds-limit holds'));
+  assert.ok(md.includes('- ⚠️ `never-fired`: never-fired holds'));
+  assert.ok(!md.includes('`paid`: paid holds'));
+  assert.ok(!md.includes('### Outcome coverage'));
+});
+
+test('many outcomes collapse, and the ones that need attention stay above the fold', () => {
+  const outcomes = Array.from({ length: 30 }, (_, i) => [`UO-${i + 1}`, `outcome ${i + 1}`]);
+  const rows = outcomes.slice(0, 29).map(([id], i) => linked(`inv-${i}`, PROVEN, id));
+  const cov = coverage(values(...outcomes), rows);
+  const md = reportMarkdown(summarize(rows, 0), rows, { coverage: cov });
+  const fold = md.indexOf('<details><summary>All 30 declared outcomes</summary>');
+  assert.ok(fold > 0);
+  assert.ok(md.indexOf('| UO-30 | outcome 30 | — | ⚪ No invariant yet |') < fold);
+  assert.ok(md.indexOf('| UO-1 | outcome 1 |') > fold);
+});
+
+test('an uncovered outcome fails the run only with fail-on-uncovered, and says so', () => {
+  const rows = [linked('paid', PROVEN, 'UO-1')];
+  const cov = coverage(values(['UO-1', 'a'], ['UO-2', 'b']), rows);
+  assert.equal(summarize(rows, 100, { uncovered: cov.uncovered }).result, 'passed');
+  const s = summarize(rows, 100, { uncovered: cov.uncovered, failOnUncovered: true });
+  assert.equal(s.result, 'failed');
+  assert.ok(reportMarkdown(s, rows, { coverage: cov }).includes('1 declared outcome has no invariant, and fail-on-uncovered is set.'));
+});
+
+test('the log table matches run_faultkit.py: worst state second, one invariant per line', () => {
+  const rows = [linked('paid', PROVEN, 'UO-1'), linked('route', PROVEN, 'UO-2'), linked('charge', SILENT_FAILURE, 'UO-2'), row('loose', PROVEN)];
+  const cov = coverage(values(['UO-1', 'a'], ['UO-2', 'b'], ['UO-3', 'c']), rows);
+  const w = PROVEN.length;
+  assert.deepEqual(outcomesTable(cov).split('\n'), [
+    '=== outcomes ===',
+    `outcome  ${'worst state'.padEnd(w)}  invariants`,
+    `UO-1     ${PROVEN.padEnd(w)}  paid`,
+    `UO-2     ${SILENT_FAILURE.padEnd(w)}  route`,
+    `${' '.repeat(9 + w + 2)}charge`,
+    `UO-3     ${'no invariant yet'.padEnd(w)}  -`,
+    'declared 3, covered 2, uncovered 1, unlinked invariants 1',
+  ]);
 });

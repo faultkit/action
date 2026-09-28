@@ -58,7 +58,10 @@ function exec(binary, args, options) {
 
 /** Run one invariant and return its proof-table row. */
 export async function runInvariant({ binary, inv, reportsDir, cwd, env }) {
-  const row = { id: inv.id, invariant: inv.invariant, faultStatus: inv.faultStatus, reason: inv.faultReason, fired: null, exit: null };
+  const row = {
+    id: inv.id, invariant: inv.invariant, outcome: inv.outcome ?? null, faultStatus: inv.faultStatus,
+    reason: inv.faultReason, fired: null, exit: null,
+  };
   if (inv.faultStatus !== 'generated') return { ...row, state: NOT_GENERATED };
 
   const report = path.join(reportsDir, `${inv.id}.report.json`);
