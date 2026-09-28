@@ -252,3 +252,10 @@ test('a working-directory outside the repository, or not a directory, is an erro
     assert.equal(ran(files), false, dir);
   }
 });
+
+test('a workspace path with a trailing slash is the repository root', async () => {
+  const ws = makeWorkspace({ version: 1, invariants: [entry('a')] });
+  const { env, files } = githubEnv(ws, { GITHUB_WORKSPACE: `${ws.root}${path.sep}` });
+  assert.equal(await main(env, { log: quiet }), 0);
+  assert.equal(outputs(files.GITHUB_OUTPUT)['reports-directory'], path.join('.faultkit', 'reports'));
+});

@@ -33,10 +33,11 @@ export function readInputs(env) {
  * other inputs' relative paths start there.
  */
 export function resolveWorkingDirectory(repo, input) {
-  const dir = path.resolve(repo, input || '.');
-  if (dir === repo) return repo;
+  const root = path.resolve(repo);
+  const dir = path.resolve(root, input || '.');
+  if (dir === root) return root;
   const real = fs.existsSync(dir) ? fs.realpathSync(dir) : null;
-  if (!inside(repo, dir) || (real && !inside(fs.realpathSync(repo), real))) {
+  if (!inside(root, dir) || (real && !inside(fs.realpathSync(root), real))) {
     throw new RangeError(`working-directory ${input} must stay inside the repository`);
   }
   if (!real || !fs.statSync(real).isDirectory()) throw new RangeError(`working-directory ${input} is not a directory`);
@@ -87,7 +88,7 @@ async function postComment(env, inputs, body, fetchImpl, log) {
 
 export async function main(env = process.env, { fetchImpl = fetch, log = console.log } = {}) {
   const inputs = readInputs(env);
-  const repo = env.GITHUB_WORKSPACE || process.cwd();
+  const repo = path.resolve(env.GITHUB_WORKSPACE || process.cwd());
   let workspace = repo;
   let reportsDir = path.join(repo, '.faultkit', 'reports');
   let threshold = null;
