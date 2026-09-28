@@ -22,6 +22,20 @@ inputs:
   faultkit-path:
     description: Run this faultkit binary instead of downloading the release this action pins.
     required: false
+  values:
+    description: >-
+      Path to the values file, relative to the repository root. Defaults to the
+      manifest's "values", else .faultkit/values.md. When the file is missing,
+      outcome coverage is skipped unless require-values is true.
+    required: false
+  require-values:
+    description: true to stop with an error, before anything runs, when no values file is found.
+    required: false
+    default: 'false'
+  fail-on-uncovered:
+    description: true to fail the run, like a threshold miss, when a declared outcome has no invariant.
+    required: false
+    default: 'false'
 outputs:
   result:
     description: passed, failed, or error.
@@ -41,6 +55,12 @@ outputs:
     description: Invariants with no generated fault scenario.
   reports-directory:
     description: Where the faultkit report/v1 files are, relative to the repository root.
+  outcomes:
+    description: Outcomes declared in the values file; 0 without one.
+  covered:
+    description: Declared outcomes that at least one invariant names.
+  uncovered:
+    description: Declared outcomes that no invariant names.
 runs:
   using: node24
   main: src/main.js

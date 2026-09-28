@@ -31,6 +31,8 @@ jobs:
           - { name: coverage-gap, threshold: '60', expect: passed, counts: '0/0/1' }
           - { name: regression, threshold: '0', expect: failed, counts: '1/0/0' }
           - { name: never-fires, threshold: '0', expect: failed, counts: '0/1/0' }
+          - { name: values, threshold: '100', expect: passed, counts: '0/0/0', coverage: '2/1/1' }
+          - { name: values, threshold: '100', expect: failed, counts: '0/0/0', coverage: '2/1/1', failOnUncovered: 'true' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -43,6 +45,7 @@ jobs:
         with:
           manifest: test/acceptance/${{ matrix.case.name }}/.faultkit/invariants/manifest.json
           threshold: ${{ matrix.case.threshold }}
+          fail-on-uncovered: ${{ matrix.case.failOnUncovered || 'false' }}
       - name: Check the verdict
         env:
           RESULT: ${{ steps.faultkit.outputs.result }}
@@ -50,10 +53,13 @@ jobs:
           OUTCOME: ${{ steps.faultkit.outcome }}
           COUNTS: ${{ steps.faultkit.outputs.failed }}/${{ steps.faultkit.outputs.invalid }}/${{ steps.faultkit.outputs['not-generated'] }}
           EXPECT_COUNTS: ${{ matrix.case.counts }}
+          COVERAGE: ${{ steps.faultkit.outputs.outcomes }}/${{ steps.faultkit.outputs.covered }}/${{ steps.faultkit.outputs.uncovered }}
+          EXPECT_COVERAGE: ${{ matrix.case.coverage || '0/0/0' }}
         run: |
           want=failure
           if [ "$EXPECT" = passed ]; then want=success; fi
-          echo "result=$RESULT expected=$EXPECT outcome=$OUTCOME want=$want counts=$COUNTS expected=$EXPECT_COUNTS"
+          echo "result=$RESULT expected=$EXPECT outcome=$OUTCOME want=$want counts=$COUNTS expected=$EXPECT_COUNTS coverage=$COVERAGE expected=$EXPECT_COVERAGE"
           test "$RESULT" = "$EXPECT"
           test "$OUTCOME" = "$want"
           test "$COUNTS" = "$EXPECT_COUNTS"
+          test "$COVERAGE" = "$EXPECT_COVERAGE"

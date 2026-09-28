@@ -36,7 +36,7 @@ test('three proven invariants at threshold 100 pass, with the manifest argv', as
   assert.equal(await main(env, { log: quiet }), 0);
   assert.deepEqual(outputs(files.GITHUB_OUTPUT), {
     result: 'passed', score: '100', threshold: '100', total: '3', proven: '3', failed: '0', invalid: '0',
-    'not-generated': '0', 'reports-directory': '.faultkit/reports',
+    'not-generated': '0', 'reports-directory': '.faultkit/reports', outcomes: '0', covered: '0', uncovered: '0',
   });
   const summary = fs.readFileSync(files.GITHUB_STEP_SUMMARY, 'utf8');
   assert.ok(summary.includes('✅ **Passed**'));
@@ -154,4 +154,79 @@ test('started through a symlinked path, the action still runs', () => {
     const run = spawnSync(process.execPath, [path.join(link, 'src', 'main.js')], { env, encoding: 'utf8' });
     assert.equal(run.status, 1, `a missing manifest is an error, never a silent exit 0 (NODE_OPTIONS=${nodeOptions})`);
   }
+});
+
+const VALUES = '## Business value\nUrgent problems reach a human fast.\n\n## Unacceptable outcomes\n- UO-1: An outage pages no one.\n- UO-2: A ticket is closed unread.\n';
+function withValues(manifest, text = VALUES) {
+  const ws = makeWorkspace(manifest);
+  fs.writeFileSync(path.join(ws.root, '.faultkit', 'values.md'), text);
+  return ws;
+}
+const v3 = (...invariants) => ({ version: 3, invariants: invariants.map((e) => ({ fault_status: 'generated', ...e })) });
+const ran = (files) => fs.readFileSync(files.FAKE_FAULTKIT_LOG, 'utf8').trim() !== '';
+
+test('a values file adds outcome coverage to the outputs, the log, and the summary', async () => {
+  const ws = withValues(v3(entry('a', { outcome: 'UO-1' }), entry('b', { outcome: 'UO-1' }), entry('c')));
+  const { env, files } = githubEnv(ws);
+  const lines = [];
+  assert.equal(await main(env, { log: (l) => lines.push(l) }), 0);
+  const out = outputs(files.GITHUB_OUTPUT);
+  assert.deepEqual([out.outcomes, out.covered, out.uncovered], ['2', '1', '1']);
+  assert.ok(lines.join('\n').includes('declared 2, covered 1, uncovered 1, unlinked invariants 1'));
+  const summary = fs.readFileSync(files.GITHUB_STEP_SUMMARY, 'utf8');
+  assert.ok(summary.includes('| UO-1 | An outage pages no one. | ✅ `a`<br>✅ `b` | ✅ Proven under fault |'));
+  assert.ok(summary.includes('| UO-2 | A ticket is closed unread. | — | ⚪ No invariant yet |'));
+});
+
+test('fail-on-uncovered fails a run whose declared outcome has no invariant', async () => {
+  const ws = withValues(v3(entry('a', { outcome: 'UO-1' })));
+  const { env, files } = githubEnv(ws, { 'INPUT_FAIL-ON-UNCOVERED': 'true' });
+  assert.equal(await main(env, { log: quiet }), 1);
+  assert.equal(outputs(files.GITHUB_OUTPUT).result, 'failed');
+});
+
+test('require-values stops before any run when the file is missing', async () => {
+  const ws = makeWorkspace({ version: 1, invariants: [entry('a')] });
+  const { env, files } = githubEnv(ws, { 'INPUT_REQUIRE-VALUES': 'true' });
+  assert.equal(await main(env, { log: quiet }), 1);
+  assert.equal(outputs(files.GITHUB_OUTPUT).result, 'error');
+  assert.ok(fs.readFileSync(files.GITHUB_STEP_SUMMARY, 'utf8').includes('values file .faultkit/values.md not found, and require-values is set'));
+  assert.equal(ran(files), false);
+});
+
+test('a missing values file skips coverage silently', async () => {
+  const ws = makeWorkspace({ version: 1, invariants: [entry('a')] });
+  const { env, files } = githubEnv(ws);
+  assert.equal(await main(env, { log: quiet }), 0);
+  assert.ok(!fs.readFileSync(files.GITHUB_STEP_SUMMARY, 'utf8').includes('Outcome coverage'));
+});
+
+test('outcome links are checked before anything runs', async () => {
+  for (const [name, ws, message] of [
+    ['dangling', makeWorkspace(v3(entry('a', { outcome: 'UO-1' }))), 'dangling outcome reference'],
+    ['undeclared', withValues(v3(entry('a', { outcome: 'UO-7' }))), 'a: outcome UO-7 is not declared in .faultkit/values.md'],
+    ['bad values file', withValues(v3(entry('a')), '## Business value\nv\n'), '.faultkit/values.md:1: missing'],
+    ['values outside the repository', makeWorkspace({ ...v3(entry('a')), values: '../values.md' }), 'must stay inside the repository'],
+  ]) {
+    const { env, files } = githubEnv(ws);
+    assert.equal(await main(env, { log: quiet }), 1, name);
+    assert.equal(outputs(files.GITHUB_OUTPUT).result, 'error', name);
+    assert.ok(fs.readFileSync(files.GITHUB_STEP_SUMMARY, 'utf8').includes(message), name);
+    assert.equal(ran(files), false, name);
+  }
+});
+
+test('the values input overrides the manifest and the default', async () => {
+  const ws = withValues(v3(entry('a', { outcome: 'UO-9' })));
+  fs.writeFileSync(path.join(ws.root, 'other.md'), '## Business value\nv\n## Unacceptable outcomes\n- UO-9: other\n');
+  const { env, files } = githubEnv(ws, { INPUT_VALUES: 'other.md' });
+  assert.equal(await main(env, { log: quiet }), 0);
+  assert.equal(outputs(files.GITHUB_OUTPUT).covered, '1');
+});
+
+test('a boolean input that is not true or false is an error', async () => {
+  const ws = makeWorkspace({ version: 1, invariants: [entry('a')] });
+  const { env, files } = githubEnv(ws, { 'INPUT_FAIL-ON-UNCOVERED': 'yes' });
+  assert.equal(await main(env, { log: quiet }), 1);
+  assert.ok(fs.readFileSync(files.GITHUB_STEP_SUMMARY, 'utf8').includes('fail-on-uncovered must be true or false'));
 });

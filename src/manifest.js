@@ -1,8 +1,9 @@
 // Reads the invariant manifest the faultkit skill keeps in the repository and
 // turns it into an InvariantPlan. Future sources (a coding agent, an LLM
-// provider, faultkit Cloud) would produce the same plan shape; see
-// docs/architecture.md. v1 implements only this one.
+// provider) would produce the same plan shape; see docs/architecture.md.
+// The action implements only this one.
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -14,6 +15,10 @@ export class ManifestError extends Error {
 }
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const OUTCOME_ID = /^UO-\d+$/;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const COMMIT_SHA = /^[0-9a-f]{40}$/;
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const MODES = new Set(['auto', 'proxy', 'ebpf']);
 const FAULT_STATUSES = new Set(['generated', 'not_generated']);
 
@@ -21,7 +26,7 @@ const isText = (v) => typeof v === 'string' && v.trim() !== '';
 const isArgv = (v) => Array.isArray(v) && v.length > 0 && v.every((a) => typeof a === 'string' && a !== '');
 const has = (o, k) => Object.hasOwn(o, k);
 
-function inside(dir, target) {
+export function inside(dir, target) {
   const rel = path.relative(dir, target);
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }
@@ -64,12 +69,23 @@ function normalize(e, i, version, manifestPath, seen) {
   if (seen.has(e.id)) throw new ManifestError(`${where}: duplicate id ${e.id}`);
   seen.add(e.id);
   if (!isText(e.invariant)) throw new ManifestError(`${where}: "invariant" must state the invariant`);
+  for (const name of ['outcome', 'source']) {
+    if (has(e, name) && version < 3) throw new ManifestError(`${where}: "${name}" needs "version": 3`);
+  }
+  if (has(e, 'outcome') && (typeof e.outcome !== 'string' || !OUTCOME_ID.test(e.outcome))) {
+    throw new ManifestError(`${where}: "outcome" must look like UO-1`);
+  }
   if (version === 1 && has(e, 'fault_status')) throw new ManifestError(`${where}: "fault_status" needs "version": 2`);
   const faultStatus = version === 1 ? 'generated' : e.fault_status;
   if (!FAULT_STATUSES.has(faultStatus)) {
     throw new ManifestError(`${where}: "fault_status" must be "generated" or "not_generated"`);
   }
-  const base = { id: e.id, invariant: e.invariant.trim(), faultStatus, ...options(e, where) };
+  const base = {
+    id: e.id, invariant: e.invariant.trim(), faultStatus, outcome: has(e, 'outcome') ? e.outcome : null, ...options(e, where),
+  };
+  if (has(e, 'source') && (faultStatus !== 'generated' || !has(e, 'config'))) {
+    throw new ManifestError(`${where}: "source" belongs to a generated entry with a "config" file`);
+  }
 
   if (faultStatus === 'not_generated') {
     if (has(e, 'config') || has(e, 'scenario')) {
@@ -85,13 +101,28 @@ function normalize(e, i, version, manifestPath, seen) {
   }
   if (has(e, 'scenario') && !isText(e.scenario)) throw new ManifestError(`${where}: "scenario" must name a builtin`);
   if (!isArgv(e.gate)) throw new ManifestError(`${where}: "gate" must be the test command as a non-empty list of strings`);
+  const config = has(e, 'config') ? resolveConfig(path.dirname(manifestPath), e.config, where) : null;
   return {
     ...base,
     faultReason: null,
-    config: has(e, 'config') ? resolveConfig(path.dirname(manifestPath), e.config, where) : null,
+    config,
     scenario: has(e, 'scenario') ? e.scenario : null,
     gate: [...e.gate],
+    source: has(e, 'source') ? checkSource(e.source, config, where) : null,
   };
+}
+
+/** A vendored registry scenario: its provenance, and its file's sha256, checked offline. */
+function checkSource(source, config, where) {
+  const ok = source !== null && typeof source === 'object' && !Array.isArray(source) &&
+    ['registry', 'id', 'version', 'sha256'].every((k) => isText(source[k])) &&
+    SLUG.test(source.id) && SEMVER.test(source.version) && SHA256_HEX.test(source.sha256);
+  if (!ok) {
+    throw new ManifestError(`${where}: "source" needs "registry", a kebab-case "id", a semver "version", and a hex "sha256"`);
+  }
+  const actual = crypto.createHash('sha256').update(fs.readFileSync(config)).digest('hex');
+  if (actual !== source.sha256) throw new ManifestError(`${where}: "config" has sha256 ${actual}, not "source.sha256" ${source.sha256}`);
+  return { registry: source.registry, id: source.id, version: source.version, sha256: source.sha256 };
 }
 
 /** Parse and validate manifest text. Anything malformed throws, so the run fails closed. */
@@ -105,8 +136,20 @@ export function parseManifest(text, manifestPath) {
   if (data === null || typeof data !== 'object' || Array.isArray(data)) {
     throw new ManifestError(`${manifestPath}: expected a JSON object`);
   }
-  if (data.version !== 1 && data.version !== 2) {
-    throw new ManifestError(`${manifestPath}: unsupported "version" ${JSON.stringify(data.version)}; expected 1 or 2`);
+  if (data.version !== 1 && data.version !== 2 && data.version !== 3) {
+    throw new ManifestError(`${manifestPath}: unsupported "version" ${JSON.stringify(data.version)}; expected 1, 2, or 3`);
+  }
+  for (const name of ['values', 'registry']) {
+    if (has(data, name) && data.version < 3) throw new ManifestError(`${manifestPath}: "${name}" needs "version": 3`);
+  }
+  if (has(data, 'values') && (!isText(data.values) || path.isAbsolute(data.values))) {
+    throw new ManifestError(`${manifestPath}: "values" must be a path relative to the repository root`);
+  }
+  const { registry } = data;
+  if (has(data, 'registry') && (registry === null || typeof registry !== 'object' ||
+    typeof registry.url !== 'string' || !registry.url.startsWith('https://') ||
+    typeof registry.ref !== 'string' || !COMMIT_SHA.test(registry.ref))) {
+    throw new ManifestError(`${manifestPath}: "registry" needs an https "url" and a 40-hex commit "ref"`);
   }
   if (!Array.isArray(data.invariants) || data.invariants.length === 0) {
     throw new ManifestError(`${manifestPath}: "invariants" must be a non-empty list`);
@@ -116,6 +159,8 @@ export function parseManifest(text, manifestPath) {
     source: 'manifest',
     manifestPath,
     version: data.version,
+    values: has(data, 'values') ? data.values : null,
+    registry: has(data, 'registry') ? { url: registry.url, ref: registry.ref } : null,
     invariants: data.invariants.map((e, i) => normalize(e, i, data.version, manifestPath, seen)),
   };
 }

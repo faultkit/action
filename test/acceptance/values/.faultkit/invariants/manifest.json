@@ -1,0 +1,32 @@
+{
+  "version": 3,
+  "values": "test/acceptance/values/.faultkit/values.md",
+  "invariants": [
+    {
+      "id": "held-on-outage-a",
+      "outcome": "UO-1",
+      "invariant": "A ticket is stored as triaged only when the model classified it.",
+      "fault_status": "generated",
+      "config": "outage.yaml",
+      "base_url": true,
+      "gate": [
+        "node",
+        "test/acceptance/gate.mjs",
+        "guarded"
+      ]
+    },
+    {
+      "id": "held-on-outage-b",
+      "outcome": "UO-1",
+      "invariant": "A ticket is stored as triaged only when the model classified it.",
+      "fault_status": "generated",
+      "config": "outage.yaml",
+      "base_url": true,
+      "gate": [
+        "node",
+        "test/acceptance/gate.mjs",
+        "guarded"
+      ]
+    }
+  ]
+}
