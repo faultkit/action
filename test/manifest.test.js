@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -22,6 +23,7 @@ test('a version 1 manifest is read as all generated', async () => {
     id: 'paid-invoice-never-escalated',
     invariant: 'The paid-invoice-never-escalated invariant holds.',
     faultStatus: 'generated',
+    outcome: null,
     mode: 'auto',
     baseUrl: true,
     provider: 'openai',
@@ -30,6 +32,7 @@ test('a version 1 manifest is read as all generated', async () => {
     config: path.join(ws.dir, 'outage.yaml'),
     scenario: null,
     gate: ['node', '--test', 'test/paid-invoice-never-escalated.test.mjs'],
+    source: null,
   });
 });
 
@@ -68,7 +71,7 @@ test('malformed manifests fail closed', async () => {
     ['gate as a string', { version: 1, invariants: [entry('a', { gate: 'npm test' })] }, /"gate"/],
     ['gate with an empty argument', { version: 1, invariants: [entry('a', { gate: ['npm', ''] })] }, /"gate"/],
     ['empty invariants', { version: 1, invariants: [] }, /non-empty list/],
-    ['unsupported version', { version: 3, invariants: [entry('a')] }, /unsupported "version" 3/],
+    ['unsupported version', { version: 4, invariants: [entry('a')] }, /unsupported "version" 4; expected 1, 2, or 3/],
     ['id not a slug', { version: 1, invariants: [entry('Not A Slug')] }, /kebab-case slug/],
     ['config escapes the directory', { version: 1, invariants: [entry('a', { config: '../../etc/passwd' })] }, /outside/],
     ['absolute config', { version: 1, invariants: [entry('a', { config: '/etc/passwd' })] }, /relative/],
@@ -93,4 +96,48 @@ test('a symlinked config may not lead outside the manifest directory', async () 
 test('a missing manifest is a manifest error', async () => {
   await assert.rejects(discover('/nonexistent/manifest.json'),
     (err) => err instanceof ManifestError && /cannot read/.test(err.message));
+});
+
+const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
+const SCENARIO = 'name: outage\n';
+
+test('version 3 carries outcomes, values, registry, and a verified source', async () => {
+  const ws = makeWorkspace({
+    version: 3,
+    values: '.faultkit/values.md',
+    registry: { url: 'https://github.com/faultkit/scenarios', ref: 'a'.repeat(40) },
+    invariants: [
+      entry('paid', { fault_status: 'generated', outcome: 'UO-1',
+        source: { registry: 'faultkit/scenarios', id: 'model-outage', version: '1.2.0', sha256: sha256(SCENARIO) } }),
+      { id: 'gap', invariant: 'gap holds', fault_status: 'not_generated', fault_reason: 'No boundary.', outcome: 'UO-2' },
+      entry('loose', { fault_status: 'generated' }),
+    ],
+  }, { 'outage.yaml': SCENARIO });
+  const plan = await discover(ws.manifestPath);
+  assert.equal(plan.version, 3);
+  assert.equal(plan.values, '.faultkit/values.md');
+  assert.deepEqual(plan.registry, { url: 'https://github.com/faultkit/scenarios', ref: 'a'.repeat(40) });
+  assert.deepEqual(plan.invariants.map((i) => i.outcome), ['UO-1', 'UO-2', null]);
+  assert.equal(plan.invariants[0].source.id, 'model-outage');
+});
+
+test('version 3 fields fail closed', async () => {
+  const cases = [
+    ['v2 with values', { version: 2, values: 'v.md', invariants: [entry('a', { fault_status: 'generated' })] }, /"values" needs "version": 3/],
+    ['v2 with outcome', { version: 2, invariants: [entry('a', { fault_status: 'generated', outcome: 'UO-1' })] }, /"outcome" needs "version": 3/],
+    ['v1 with registry', { version: 1, registry: { url: 'https://x', ref: 'a'.repeat(40) }, invariants: [entry('a')] }, /"registry" needs "version": 3/],
+    ['absolute values', { version: 3, values: '/etc/values.md', invariants: [entry('a', { fault_status: 'generated' })] }, /"values" must be a path relative/],
+    ['bad outcome id', { version: 3, invariants: [entry('a', { fault_status: 'generated', outcome: 'UO-1\n' })] }, /"outcome" must look like UO-1/],
+    ['http registry', { version: 3, registry: { url: 'http://x', ref: 'a'.repeat(40) }, invariants: [entry('a', { fault_status: 'generated' })] }, /"registry" needs an https "url"/],
+    ['source on a builtin', { version: 3, invariants: [{ id: 'a', invariant: 'a holds', fault_status: 'generated', scenario: 'llm-api-degraded', gate: ['true'],
+      source: { registry: 'r', id: 'a', version: '1.0.0', sha256: sha256(SCENARIO) } }] }, /"source" belongs to a generated entry with a "config" file/],
+    ['source without a semver', { version: 3, invariants: [entry('a', { fault_status: 'generated',
+      source: { registry: 'r', id: 'a', version: 'latest', sha256: sha256(SCENARIO) } })] }, /"source" needs "registry"/],
+    ['source.sha256 mismatch', { version: 3, invariants: [entry('a', { fault_status: 'generated',
+      source: { registry: 'r', id: 'a', version: '1.0.0', sha256: 'b'.repeat(64) } })] }, /"config" has sha256 [0-9a-f]{64}, not "source.sha256"/],
+  ];
+  for (const [name, manifest, pattern] of cases) {
+    const ws = makeWorkspace(manifest, { 'outage.yaml': SCENARIO });
+    await assert.rejects(discover(ws.manifestPath), (err) => err instanceof ManifestError && pattern.test(err.message), name);
+  }
 });

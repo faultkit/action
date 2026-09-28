@@ -1,0 +1,1 @@
+{"business_value": "Paying customers are never treated as delinquent.\nCollections only ever chase real debt.", "outcomes": [{"id": "UO-7", "text": "A customer with a disputed invoice is contacted by collections."}, {"id": "UO-12", "text": "A customer is charged twice for one invoice."}], "out_of_scope": [], "workflow": null, "domains": [], "owner": null, "inferred": false}

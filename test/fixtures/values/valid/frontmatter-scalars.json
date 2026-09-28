@@ -1,0 +1,1 @@
+{"business_value": "Paying customers are never treated as delinquent.", "outcomes": [{"id": "UO-1", "text": "A final notice is issued for a paid invoice."}], "out_of_scope": [], "workflow": "billing-agent", "domains": ["payments, collections"], "owner": null, "inferred": false}
